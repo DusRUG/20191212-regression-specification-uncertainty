@@ -1,0 +1,139 @@
+---
+title: "Extreme Bounds Analysis"
+author: 'Marcelo Bohrer'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+This presentation is a brief show case of the Extreme Bounds package, which implements extreme bounds analysis in R. This type of 
+analysis provides a distribution of the beta coefficients for a fixed set of variables in a multiple linear regression. The focus is not on developing the most accurate model, but to explore the possible values of the coefficients.
+
+Extreme bounds analysis was developed by Leamer in 1983 and further developed by Sala-i-Martin in the late 90's. The method has many applications, economists (such as Sala-i-Martin) used it to study economic growth. The R package implementing this analysis was developed by Marek Hlavac in 2016.
+
+
+## Structure of the model
+
+The basic structure is just that of a linear regression
+$$y_i = \sum_i^n\beta_i  x_i + \epsilon_i$$
+
+### Variable Types
+
+In EBA there are two (or three) types of variables:
+
+* free: these variables will be included in every model, they form somewhat of a 'prior knwoledge' that the researcher has.
+* focus: these are the variables whose robustness we want to test, at least 1 of these variables will be included in every regression.
+
+```{r, message= FALSE, warning=FALSE}
+library(ExtremeBounds)
+library(dplyr)
+```
+## Application - Videogame soccer (football) player ratings
+
+In Fifa player's have a global rating, plus ratings on many attributes. Ratings can (should be able to) be explained by some
+function of the attributes. It's assumed that the model is linear. Ratings for all attributes are on a 0-100 scale, theoretically a linear regression should not be used, but the idea is to showcase the technique so a take some statitical liberties. We'll focus for some reason on offensive players. Let's take a look at the data.
+
+```{r}
+datafifa <- read.csv('C:/Users/mbohrer/Documents/Dus_rug/data_fifa.csv', sep = ',', stringsAsFactors = F)
+glimpse(datafifa)
+```
+
+
+### The naive model
+
+Considering 14 independent variables we have 1470 regressions to estimate on a total of 3025 observations. Running these regressions takes a couple of minutes. 
+
+```{r, cache=T}
+
+
+
+datafifa <- datafifa %>%
+  filter(Position %in% c('CAM', 'CM', 'LAM', 'LCM',  'LF', 'LM', 'LS', 'LW', 'RCM',  'RF', 'RM', 'RS', 'RW', 'ST'))
+
+eba.fifa <-   eba(formula = Potential ~ Crossing + Curve + Dribbling + FKAccuracy + Finishing + HeadingAccuracy +
+                    LongShots + Positioning + Reactions+ShortPassing + ShotPower + 
+                    SprintSpeed + Stamina  + Vision, data = datafifa)
+
+```
+
+We can see the results in the chart:
+
+```{r}
+
+hist(eba.fifa , density.show = F)
+```
+
+We can see that Dribbling, Reactions and ShortPassing seem to be robust variables. But what about the others?
+
+```{r}
+summary(eba.fifa)
+```
+
+Let's take a look at Vision. It was included in 378 regressions, the average $\beta$ was 0.171.
+
+$\beta$ was  $>0$ in 96.032% (363) regressions and both positive and significant (at 5%) in 88.89% (336) regressions.
+
+Leamer's method would classify Vision as fragile, since the lower extreme bound is -0.099 and the upper extrme bound is 0.381, so the interval contains 0, that means that for at least one combination of independent variables the beta coefficient for Vision was negative.
+
+Sala-i-Martin's method computes the CDF of the $\beta$ coefficients, using the integrated likelihood as weights. He uses two approaches, either assuming normality of the $\beta$ coefficients across models or with no distributional assumptions. Both are reported by the print() function. The results replicate the counts of $\beta$ we did before.
+
+### using free variables
+
+I can choose free variables to be included in every regression, this just requires minor changes in the code, and reduces the number of regressions thus reducing the computing time. This time Reactions, ShotPower, Dribbling and Vision will be included in every regression.
+
+```{r, cahe = T}
+library(ExtremeBounds)
+eba.fifa <-   eba(formula = Potential ~ Reactions + ShotPower + Dribbling + Vision | Crossing + Curve + FKAccuracy + Finishing +                        HeadingAccuracy + LongShots + Positioning + ShortPassing + 
+                    SprintSpeed + Stamina , data = datafifa)
+hist(eba.fifa, density.show = F)
+```
+
+From the plots alone we can see that our understanding of the variables changes. FKAccuracy now has a robust negative relation to the players rating and ShortPassing a positive one. The lack of robusteness for these variables in Leamer's sense in the previous models came from models that did not include or (or a combination) of the free variables. We can inspect the print output for more details.
+
+```{r}
+print(eba.fifa)
+```
+
+### Different weights and goodness of fit
+
+So far our average $\beta$ coefficients treated every regression the same way, but we can specify the weights to be according to adjusted R squared. Again it's a minor code change.
+
+```{r, cache = T}
+eba.fifa <-   eba(formula = Potential ~ Reactions + ShotPower + Dribbling + Vision | Crossing + Curve + FKAccuracy + Finishing +                        HeadingAccuracy + LongShots + Positioning + ShortPassing + 
+                    SprintSpeed + Stamina , data = datafifa,  weights = 'adj.r.squared')
+print(eba.fifa)
+```
+
+The print output is almost the same, there are minor changes to the weights of the coefficients.
+
+And how are the adjusted r squared values for different regressions?
+
+```{r}
+library(ggplot2)
+weightdf <- as.data.frame(eba.fifa$regressions$weight)
+ggplot(weightdf, aes(x = `(Intercept)` )) + 
+  geom_histogram(bins = 12, alpha = 0.5 , col = 'white', fill = 'black') +
+  xlab('Adjusted R Squared') 
+```
+
+The values range between 0.5285 and 0.5944.
+
+
+### Conclusion and additional development
+
+There are many more things that can be implemented with this package:
+
+* Logistic regression
+* Variance inflation correction
+* Limit the number of independent variables and mutually exclusive variables
+
+
+### References
+
+* Hlavac, Marek (2016). ExtremeBounds: Extreme Bounds Analysis in R. Journal of Statistical Software.
+* Sala-i-Martin, Xavier (1997). I Just Ran Two Million Regressions. American Economic Review.
+* Leamer E, Leonard H (1983). Reporting the Fragility of Regression Estimates. Review of
+Economics and Statistics.
